@@ -33,7 +33,7 @@ model Account {
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
   userId       String
-  currency     Currency      @default(USD)
+  currency     Currency      @default(ARS)
   transactions Transaction[]
 
   @@map("accounts")
@@ -65,6 +65,7 @@ model Transaction {
   processed   Boolean         @default(false)
   aiExtracted Boolean         @default(false)
   metadata    Json?
+  currency    Currency        @default(ARS)
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
   userId      String
@@ -112,6 +113,51 @@ model Budget {
   @@map("budgets")
 }
 
+model investments {
+  id            String   @id
+  userId        String
+  symbol        String
+  companyName   String
+  quantity      Decimal  @db.Decimal(12, 4)
+  purchasePrice Decimal  @db.Decimal(10, 2)
+  purchaseDate  DateTime
+  currentPrice  Decimal? @db.Decimal(10, 2)
+  currency      Currency @default(USD)
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime
+}
+
+model stock_prices {
+  id            String   @id
+  symbol        String   @unique
+  companyName   String?
+  price         Decimal  @db.Decimal(10, 2)
+  change        Decimal? @db.Decimal(10, 2)
+  changePercent Decimal? @db.Decimal(5, 2)
+  currency      Currency @default(USD)
+  lastUpdated   DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime
+}
+
+model Subscription {
+  id              String       @id @default(cuid())
+  name            String
+  description     String?
+  amount          Decimal      @db.Decimal(10, 2)
+  billingCycle    BillingCycle
+  nextBillingDate DateTime
+  isActive        Boolean      @default(true)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  userId          String
+  accountId       String
+  categoryId      String?
+
+  @@map("subscriptions")
+}
+
 enum AccountType {
   CHECKING
   SAVINGS
@@ -138,4 +184,9 @@ enum BudgetPeriod {
   QUARTERLY
   YEARLY
   CUSTOM
+}
+
+enum BillingCycle {
+  MONTHLY
+  YEARLY
 }

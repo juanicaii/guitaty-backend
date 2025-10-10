@@ -76,6 +76,7 @@ transactions.get('/', async (c) => {
               id: true,
               name: true,
               type: true,
+              currency: true,
             },
           },
           category: {
@@ -139,6 +140,7 @@ transactions.get('/:id', async (c) => {
             id: true,
             name: true,
             type: true,
+            currency: true,
           },
         },
         category: {
@@ -212,6 +214,7 @@ transactions.post('/', async (c) => {
       data: {
         ...validatedData,
         userId,
+        currency: account.currency,
         processed: true,
         aiExtracted: false,
       },
@@ -221,6 +224,7 @@ transactions.post('/', async (c) => {
             id: true,
             name: true,
             type: true,
+            currency: true,
           },
         },
         category: {
@@ -242,16 +246,18 @@ transactions.post('/', async (c) => {
     });
 
     // Actualizar el balance de la cuenta
-    const balanceChange = validatedData.type === 'EXPENSE' ? -validatedData.amount : validatedData.amount;
+    if (validatedData.type !== 'TRANSFER') {
+      const balanceChange = validatedData.type === 'EXPENSE' ? -validatedData.amount : validatedData.amount;
 
-    await prisma.account.update({
-      where: { id: validatedData.accountId },
-      data: {
-        balance: {
-          increment: balanceChange,
+      await prisma.account.update({
+        where: { id: validatedData.accountId },
+        data: {
+          balance: {
+            increment: balanceChange,
+          },
         },
-      },
-    });
+      });
+    }
 
     return c.json(transaction, 201);
   } catch (error) {
@@ -322,6 +328,7 @@ transactions.put('/:id', async (c) => {
             id: true,
             name: true,
             type: true,
+            currency: true,
           },
         },
         category: {
@@ -344,31 +351,38 @@ transactions.put('/:id', async (c) => {
 
     // Si cambió el monto o tipo, actualizar balances de las cuentas
     if (validatedData.amount !== undefined || validatedData.type !== undefined || validatedData.accountId !== undefined) {
-      // Revertir el efecto de la transacción original
-      const originalBalanceChange = existingTransaction.type === 'EXPENSE' ? existingTransaction.amount : -existingTransaction.amount;
-      await prisma.account.update({
-        where: { id: existingTransaction.accountId },
-        data: {
-          balance: {
-            increment: Number(originalBalanceChange),
+      // Solo procesar si la transacción original no era TRANSFER
+      if (existingTransaction.type !== 'TRANSFER') {
+        // Revertir el efecto de la transacción original
+        const originalBalanceChange = existingTransaction.type === 'EXPENSE' ? Number(existingTransaction.amount) : -Number(existingTransaction.amount);
+        await prisma.account.update({
+          where: { id: existingTransaction.accountId },
+          data: {
+            balance: {
+              increment: originalBalanceChange,
+            },
           },
-        },
-      });
+        });
+      }
 
       // Aplicar el efecto de la transacción actualizada
       const newAmount = validatedData.amount ?? Number(existingTransaction.amount);
       const newType = validatedData.type ?? existingTransaction.type;
       const newAccountId = validatedData.accountId ?? existingTransaction.accountId;
-      const newBalanceChange = newType === 'EXPENSE' ? -newAmount : newAmount;
 
-      await prisma.account.update({
-        where: { id: newAccountId },
-        data: {
-          balance: {
-            increment: newBalanceChange,
+      // Solo aplicar cambio si el nuevo tipo no es TRANSFER
+      if (newType !== 'TRANSFER') {
+        const newBalanceChange = newType === 'EXPENSE' ? -newAmount : newAmount;
+
+        await prisma.account.update({
+          where: { id: newAccountId },
+          data: {
+            balance: {
+              increment: newBalanceChange,
+            },
           },
-        },
-      });
+        });
+      }
     }
 
     return c.json(transaction);
@@ -401,17 +415,19 @@ transactions.delete('/:id', async (c) => {
       where: { id },
     });
 
-    // Revertir el efecto en el balance de la cuenta
-    const balanceChange = transaction.type === 'EXPENSE' ? Number(transaction.amount) : -Number(transaction.amount);
+    // Revertir el efecto en el balance de la cuenta (solo si no es TRANSFER)
+    if (transaction.type !== 'TRANSFER') {
+      const balanceChange = transaction.type === 'EXPENSE' ? Number(transaction.amount) : -Number(transaction.amount);
 
-    await prisma.account.update({
-      where: { id: transaction.accountId },
-      data: {
-        balance: {
-          increment: balanceChange,
+      await prisma.account.update({
+        where: { id: transaction.accountId },
+        data: {
+          balance: {
+            increment: balanceChange,
+          },
         },
-      },
-    });
+      });
+    }
 
     return c.json({ success: true });
   } catch (error) {

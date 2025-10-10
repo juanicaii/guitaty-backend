@@ -42,10 +42,12 @@ stats.get('/', async (c) => {
       totalExpensesUSD,
       totalIncomeARS,
       totalExpensesARS,
-      accountBalance,
+      accountBalanceUSD,
+      accountBalanceARS,
       transactionCount,
-      categoryStats,
-      monthlyTrend,
+      categoryStatsUSD,
+      categoryStatsARS,
+      monthlyTrendData,
     ] = await Promise.all([
       // Ingresos totales USD
       prisma.transaction.aggregate({
@@ -53,9 +55,7 @@ stats.get('/', async (c) => {
           userId,
           type: 'INCOME',
           date: dateFilter,
-          account: {
-            currency: 'USD'
-          }
+          currency: 'USD',
         },
         _sum: {
           amount: true,
@@ -68,9 +68,7 @@ stats.get('/', async (c) => {
           userId,
           type: 'EXPENSE',
           date: dateFilter,
-          account: {
-            currency: 'USD'
-          }
+          currency: 'USD',
         },
         _sum: {
           amount: true,
@@ -83,9 +81,7 @@ stats.get('/', async (c) => {
           userId,
           type: 'INCOME',
           date: dateFilter,
-          account: {
-            currency: 'ARS'
-          }
+          currency: 'ARS',
         },
         _sum: {
           amount: true,
@@ -98,20 +94,31 @@ stats.get('/', async (c) => {
           userId,
           type: 'EXPENSE',
           date: dateFilter,
-          account: {
-            currency: 'ARS'
-          }
+          currency: 'ARS',
         },
         _sum: {
           amount: true,
         },
       }),
 
-      // Balance total de cuentas
+      // Balance de cuentas USD
       prisma.account.aggregate({
         where: {
           userId,
           isActive: true,
+          currency: 'USD',
+        },
+        _sum: {
+          balance: true,
+        },
+      }),
+
+      // Balance de cuentas ARS
+      prisma.account.aggregate({
+        where: {
+          userId,
+          isActive: true,
+          currency: 'ARS',
         },
         _sum: {
           balance: true,
@@ -126,13 +133,14 @@ stats.get('/', async (c) => {
         },
       }),
 
-      // Estadísticas por categoría (top 5 gastos)
+      // Top 5 categorías de gastos USD
       prisma.transaction.groupBy({
         by: ['categoryId'],
         where: {
           userId,
           type: 'EXPENSE',
           date: dateFilter,
+          currency: 'USD',
           categoryId: { not: null },
         },
         _sum: {
@@ -146,12 +154,31 @@ stats.get('/', async (c) => {
         take: 5,
       }),
 
-      // Tendencia mensual
+      // Top 5 categorías de gastos ARS
+      prisma.transaction.groupBy({
+        by: ['categoryId'],
+        where: {
+          userId,
+          type: 'EXPENSE',
+          date: dateFilter,
+          currency: 'ARS',
+          categoryId: { not: null },
+        },
+        _sum: {
+          amount: true,
+        },
+        orderBy: {
+          _sum: {
+            amount: 'desc',
+          },
+        },
+        take: 5,
+      }),
+
+      // Tendencia mensual (últimos 12 meses)
       (async () => {
         try {
           const today = new Date();
-
-          // Calcular desde hace 12 meses hasta ahora (incluyendo el mes actual)
           const twelveMonthsAgo = new Date();
           twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
           twelveMonthsAgo.setDate(1);
@@ -162,31 +189,42 @@ stats.get('/', async (c) => {
               userId,
               date: {
                 gte: twelveMonthsAgo,
-                lte: today
-              }
+                lte: today,
+              },
             },
             select: {
               date: true,
               type: true,
-              amount: true
-            }
+              amount: true,
+              currency: true,
+            },
           });
 
-          // Agrupar por mes
-          const monthlyGroups: { [key: string]: { income: number, expenses: number } } = {};
+          // Agrupar por mes y currency
+          const monthlyGroups: {
+            [key: string]: {
+              usd: { income: number; expenses: number };
+              ars: { income: number; expenses: number };
+            };
+          } = {};
 
-          transactions.forEach(transaction => {
+          transactions.forEach((transaction) => {
             const monthKey = transaction.date.toISOString().substring(0, 7); // YYYY-MM
 
             if (!monthlyGroups[monthKey]) {
-              monthlyGroups[monthKey] = { income: 0, expenses: 0 };
+              monthlyGroups[monthKey] = {
+                usd: { income: 0, expenses: 0 },
+                ars: { income: 0, expenses: 0 },
+              };
             }
 
             const amount = Number(transaction.amount);
+            const currency = transaction.currency.toLowerCase() as 'usd' | 'ars';
+
             if (transaction.type === 'INCOME') {
-              monthlyGroups[monthKey].income += amount;
+              monthlyGroups[monthKey][currency].income += amount;
             } else if (transaction.type === 'EXPENSE') {
-              monthlyGroups[monthKey].expenses += amount;
+              monthlyGroups[monthKey][currency].expenses += amount;
             }
           });
 
@@ -194,8 +232,14 @@ stats.get('/', async (c) => {
           const result = Object.entries(monthlyGroups)
             .map(([month, data]) => ({
               month: new Date(month + '-01'),
-              income: data.income,
-              expenses: data.expenses
+              usd: {
+                income: data.usd.income,
+                expenses: data.usd.expenses,
+              },
+              ars: {
+                income: data.ars.income,
+                expenses: data.ars.expenses,
+              },
             }))
             .sort((a, b) => a.month.getTime() - b.month.getTime());
 
@@ -207,45 +251,61 @@ stats.get('/', async (c) => {
       })(),
     ]);
 
-    // Procesar estadísticas de categorías
-    const categoryStatsWithNames = await Promise.all(
-      categoryStats.map(async (stat) => {
+    // Procesar estadísticas de categorías USD
+    const categoryStatsUSDWithNames = await Promise.all(
+      categoryStatsUSD.map(async (stat) => {
         const category = await prisma.category.findUnique({
           where: { id: stat.categoryId! },
           select: { name: true, color: true, icon: true },
         });
         return {
-          ...stat,
+          categoryId: stat.categoryId,
+          amount: Number(stat._sum.amount || 0),
           category,
         };
       })
     );
 
+    // Procesar estadísticas de categorías ARS
+    const categoryStatsARSWithNames = await Promise.all(
+      categoryStatsARS.map(async (stat) => {
+        const category = await prisma.category.findUnique({
+          where: { id: stat.categoryId! },
+          select: { name: true, color: true, icon: true },
+        });
+        return {
+          categoryId: stat.categoryId,
+          amount: Number(stat._sum.amount || 0),
+          category,
+        };
+      })
+    );
+
+    // Calcular totales
     const totalIncomeUSDAmount = Number(totalIncomeUSD._sum.amount || 0);
     const totalExpensesUSDAmount = Number(totalExpensesUSD._sum.amount || 0);
     const totalIncomeARSAmount = Number(totalIncomeARS._sum.amount || 0);
     const totalExpensesARSAmount = Number(totalExpensesARS._sum.amount || 0);
-    const accountBalanceAmount = Number(accountBalance._sum.balance || 0);
+    const accountBalanceUSDAmount = Number(accountBalanceUSD._sum.balance || 0);
+    const accountBalanceARSAmount = Number(accountBalanceARS._sum.balance || 0);
 
     const statsData = {
       usd: {
         totalIncome: totalIncomeUSDAmount,
         totalExpenses: totalExpensesUSDAmount,
         netIncome: totalIncomeUSDAmount - totalExpensesUSDAmount,
+        accountBalance: accountBalanceUSDAmount,
+        topExpenseCategories: categoryStatsUSDWithNames,
       },
       ars: {
         totalIncome: totalIncomeARSAmount,
         totalExpenses: totalExpensesARSAmount,
         netIncome: totalIncomeARSAmount - totalExpensesARSAmount,
+        accountBalance: accountBalanceARSAmount,
+        topExpenseCategories: categoryStatsARSWithNames,
       },
-      // Mantener compatibilidad con el código existente (total combinado)
-      totalIncome: totalIncomeUSDAmount + totalIncomeARSAmount,
-      totalExpenses: totalExpensesUSDAmount + totalExpensesARSAmount,
-      netIncome: (totalIncomeUSDAmount + totalIncomeARSAmount) - (totalExpensesUSDAmount + totalExpensesARSAmount),
-      accountBalance: accountBalanceAmount,
       transactionCount,
-      topExpenseCategories: categoryStatsWithNames,
-      monthlyTrend,
+      monthlyTrend: monthlyTrendData,
     };
 
     return c.json(statsData);

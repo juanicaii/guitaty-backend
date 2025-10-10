@@ -10,7 +10,7 @@ const CreateAccountSchema = z.object({
   name: z.string().min(1),
   type: z.enum(['CHECKING', 'SAVINGS', 'CREDIT_CARD', 'CASH', 'INVESTMENT', 'OTHER']),
   balance: z.number().default(0),
-  currency: z.enum(['USD', 'ARS']).default('USD'),
+  currency: z.enum(['USD', 'ARS']).default('ARS'),
 });
 
 const UpdateAccountSchema = z.object({

@@ -6,8 +6,13 @@ import accounts from './routes/accounts';
 import categories from './routes/categories';
 import transactions from './routes/transactions';
 import stats from './routes/stats';
+import subscriptions from './routes/subscriptions';
+import { startSubscriptionProcessor } from './services/subscriptionProcessor';
 
 const app = new Hono();
+
+// Start subscription processor
+startSubscriptionProcessor();
 
 // Middlewares globales
 app.use('*', logger());
@@ -31,6 +36,7 @@ app.use('/api/*', authMiddleware);
 app.route('/api/accounts', accounts);
 app.route('/api/categories', categories);
 app.route('/api/transactions', transactions);
+app.route('/api/subscriptions', subscriptions);
 app.route('/api/dashboard/stats', stats);
 
 // Ruta 404
