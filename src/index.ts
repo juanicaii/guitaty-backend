@@ -7,6 +7,7 @@ import categories from './routes/categories';
 import transactions from './routes/transactions';
 import stats from './routes/stats';
 import subscriptions from './routes/subscriptions';
+import budgets from './routes/budgets';
 import { startSubscriptionProcessor } from './services/subscriptionProcessor';
 
 const app = new Hono();
@@ -37,6 +38,7 @@ app.route('/api/accounts', accounts);
 app.route('/api/categories', categories);
 app.route('/api/transactions', transactions);
 app.route('/api/subscriptions', subscriptions);
+app.route('/api/budgets', budgets);
 app.route('/api/dashboard/stats', stats);
 
 // Ruta 404
