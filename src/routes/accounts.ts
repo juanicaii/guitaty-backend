@@ -48,6 +48,39 @@ accounts.get('/', async (c) => {
   }
 });
 
+// GET /api/accounts/balance - Obtener balance total por moneda
+accounts.get('/balance', async (c) => {
+  try {
+    const userId = getUserId(c);
+    const currency = c.req.query('currency');
+
+    if (!currency || !['USD', 'ARS'].includes(currency)) {
+      return c.json({ error: 'Currency parameter is required (USD or ARS)' }, 400);
+    }
+
+    const result = await prisma.account.aggregate({
+      where: {
+        userId,
+        currency: currency as 'USD' | 'ARS',
+        isActive: true,
+      },
+      _sum: {
+        balance: true,
+      },
+    });
+
+    const balance = Number(result._sum.balance || 0);
+
+    return c.json({
+      currency,
+      balance,
+    });
+  } catch (error) {
+    console.error('Error al obtener balance:', error);
+    return c.json({ error: 'Error interno del servidor' }, 500);
+  }
+});
+
 // GET /api/accounts/:id - Obtener una cuenta específica
 accounts.get('/:id', async (c) => {
   try {
